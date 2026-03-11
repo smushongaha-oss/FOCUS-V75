@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>FOCUS V75 — AI Chart Analyzer</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=DM+Mono:wght@300;400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --void:#020408;--deep:#050c16;--surface:#070f1c;--raised:#0b1826;
+  --border:#102038;--line:#1a3555;
+  --v75:#7c3aed;--v75b:rgba(124,58,237,.12);--v75g:#9b59f5;--v75glow:rgba(124,58,237,.45);
+  --gold:#f5a623;--gold2:#ffd166;--green:#00f5a0;--red:#ff4560;
+  --cyan:#00c8f0;
+  --text:#cce0f5;--dim:#3f5c7a;--dimmer:#22384f;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--void);color:var(--text);font-family:'DM Mono',monospace;min-height:100vh;overflow-x:hidden;cursor:crosshair}
+
+/* V75 GRID BACKGROUND */
+body::before{content:'';position:fixed;inset:0;
+  background-image:linear-gradient(rgba(124,58,237,.022) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(124,58,237,.022) 1px,transparent 1px);
+  background-size:48px 48px;pointer-events:none;z-index:0}
+/* Ambient glow */
+body::after{content:'';position:fixed;top:-20%;left:50%;transform:translateX(-50%);
+  width:900px;height:500px;border-radius:50%;
+  background:radial-gradient(ellipse,rgba(124,58,237,.07) 0%,transparent 70%);
+  pointer-events:none;z-index:0}
+
+.scanlines{position:fixed;inset:0;pointer-events:none;z-index:1;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.035) 2px,rgba(0,0,0,.035) 4px)}
+
+/* CORNER BRACKETS */
+.corner{position:fixed;width:44px;height:44px;pointer-events:none;z-index:2}
+.corner.tl{top:16px;left:16px;border-top:1px solid var(--v75g);border-left:1px solid var(--v75g)}
+.corner.tr{top:16px;right:16px;border-top:1px solid var(--v75g);border-right:1px solid var(--v75g)}
+.corner.bl{bottom:16px;left:16px;border-bottom:1px solid var(--gold);border-left:1px solid var(--gold)}
+.corner.br{bottom:16px;right:16px;border-bottom:1px solid var(--gold);border-right:1px solid var(--gold)}
+
+/* ─── API KEY GATE ─────────────────────────────── */
+.gate{position:fixed;inset:0;z-index:100;background:var(--void);display:flex;align-items:center;justify-content:center;padding:20px}
+.gate-box{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:40px 36px;max-width:480px;width:100%;position:relative;overflow:hidden}
+.gate-box::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--v75g),transparent)}
+.gate-box::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(245,166,35,.4),transparent)}
+
+/* V75 Logo in gate */
+.gate-logo{font-family:'Orbitron',monospace;font-weight:900;margin-bottom:3px;line-height:1}
+.gate-logo .f{font-size:2.6rem;color:var(--v75g);text-shadow:0 0 35px var(--v75glow);letter-spacing:.05em}
+.gate-logo .v{font-size:1.9rem;color:var(--gold);text-shadow:0 0 20px rgba(245,166,35,.5);letter-spacing:.08em;margin-left:2px}
+.gate-sub{font-size:.58rem;letter-spacing:.24em;color:var(--dim);margin-bottom:6px;text-transform:uppercase}
+
+/* LOCKED badge */
+.locked-badge{display:inline-flex;align-items:center;gap:6px;
+  font-family:'Orbitron',monospace;font-size:.5rem;letter-spacing:.16em;
+  padding:4px 12px;border-radius:2px;
+  border:1px solid rgba(124,58,237,.4);background:rgba(124,58,237,.09);
+  color:var(--v75g);margin-bottom:26px}
+.locked-badge .dot{width:5px;height:5px;border-radius:50%;
+  background:var(--v75g);animation:blink 1.4s infinite;box-shadow:0 0 5px var(--v75g)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+.gate-label{font-size:.58rem;letter-spacing:.16em;color:var(--dim);margin-bottom:8px;display:block}
+.gate-input{width:100%;background:var(--deep);border:1px solid var(--border);color:var(--text);
+  font-family:'DM Mono',monospace;font-size:.82rem;padding:12px 14px;border-radius:3px;
+  outline:none;transition:border-color .25s;margin-bottom:6px}
+.gate-input:focus{border-color:var(--v75g);box-shadow:0 0 0 2px rgba(124,58,237,.1)}
+.gate-hint{font-size:.58rem;color:var(--dimmer);margin-bottom:22px;line-height:1.7}
+.gate-hint a{color:var(--v75g);text-decoration:none}
+.gate-hint a:hover{text-decoration:underline}
+.gate-btn{width:100%;background:transparent;border:1px solid var(--v75g);color:var(--v75g);
+  font-family:'Orbitron',monospace;font-size:.7rem;letter-spacing:.22em;padding:14px;
+  border-radius:3px;cursor:pointer;transition:all .3s}
+.gate-btn:hover{background:rgba(124,58,237,.1);box-shadow:0 0 24px rgba(124,58,237,.25)}
+.gate-err{color:var(--red);font-size:.62rem;margin-top:10px;display:none}
+
+/* V75 spec list in gate */
+.gate-specs{margin-top:20px;padding:12px 14px;
+  background:rgba(124,58,237,.06);border:1px solid rgba(124,58,237,.15);border-radius:3px}
+.gate-specs-title{font-family:'Orbitron',monospace;font-size:.48rem;letter-spacing:.18em;
+  color:var(--v75g);margin-bottom:8px;opacity:.7}
+.gate-specs-grid{display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;font-size:.56rem;line-height:1.9;color:var(--dim)}
+.gate-specs-grid strong{color:rgba(155,89,245,.85)}
+
+/* ─── APP ──────────────────────────────────────── */
+.app{position:relative;z-index:3;max-width:1300px;margin:0 auto;padding:26px 20px 90px}
+
+/* HEADER */
+.header{display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:32px;padding-bottom:16px;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:12px}
+.logo-wrap{display:flex;flex-direction:column}
+.logo{font-family:'Orbitron',monospace;font-weight:900;line-height:1;display:flex;align-items:baseline;gap:6px}
+.logo .f{font-size:1.7rem;color:var(--v75g);text-shadow:0 0 24px var(--v75glow);letter-spacing:.06em}
+.logo .v75{font-size:1.15rem;color:var(--gold);letter-spacing:.1em}
+.logo-sub{font-size:.5rem;letter-spacing:.26em;color:var(--dim);margin-top:3px;text-transform:uppercase}
+.hbadges{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.hbadge{font-size:.5rem;letter-spacing:.13em;padding:4px 10px;border-radius:2px;border:1px solid;font-family:'Orbitron',monospace}
+.hbadge.live{color:var(--green);border-color:var(--green);background:rgba(0,245,160,.05)}
+.hbadge.live::before{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;
+  background:var(--green);margin-right:5px;animation:blink 1.4s infinite;box-shadow:0 0 5px var(--green)}
+.hbadge.v75locked{color:var(--v75g);border-color:var(--v75);background:rgba(124,58,237,.09);
+  font-size:.48rem}
+.hbadge.ai{color:var(--gold);border-color:var(--gold);background:rgba(245,166,35,.06)}
+.hbadge.keybtn{color:var(--dim);border-color:var(--border);cursor:pointer;transition:all .2s}
+.hbadge.keybtn:hover{border-color:var(--line);color:var(--text)}
+
+/* ─── LAYOUT ───────────────────────────────────── */
+.main{display:grid;grid-template-columns:400px 1fr;gap:18px;align-items:start}
+@media(max-width:880px){.main{grid-template-columns:1fr}}
+
+/* ─── CARDS ────────────────────────────────────── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:18px;margin-bottom:14px;position:relative;overflow:hidden}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(124,58,237,.25),transparent)}
+.ctitle{font-family:'Orbitron',monospace;font-size:.5rem;letter-spacing:.24em;color:var(--dim);
+  margin-bottom:14px;display:flex;align-items:center;gap:7px}
+.ctitle::before{content:'';width:2px;height:10px;background:var(--v75g);flex-shrink:0}
+
+/* V75 LOCKED INSTRUMENT STRIP */
+.instrument-strip{background:rgba(124,58,237,.07);border:1px solid rgba(124,58,237,.2);
+  border-radius:3px;padding:9px 14px;margin-bottom:14px;
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px}
+.inst-name{font-family:'Orbitron',monospace;font-size:.65rem;font-weight:700;
+  color:var(--v75g);letter-spacing:.1em;display:flex;align-items:center;gap:7px}
+.inst-name .lock{font-size:.52rem;background:rgba(124,58,237,.2);padding:2px 6px;
+  border-radius:2px;color:rgba(155,89,245,.7);letter-spacing:.08em}
+.inst-props{display:flex;gap:12px;font-size:.52rem;color:var(--dim);flex-wrap:wrap}
+.inst-props span{color:var(--text)}
+.inst-pulse{font-size:.5rem;color:var(--v75g);display:flex;align-items:center;gap:4px;
+  font-family:'Orbitron',monospace;letter-spacing:.08em}
+.inst-pulse::before{content:'';width:4px;height:4px;border-radius:50%;background:var(--v75g);
+  animation:blink 1.4s infinite;box-shadow:0 0 4px var(--v75g);display:block}
+
+/* DROP ZONE */
+.dz{border:1px dashed var(--line);border-radius:3px;min-height:230px;display:flex;
+  flex-direction:column;align-items:center;justify-content:center;gap:10px;
+  cursor:pointer;transition:all .3s;position:relative;background:var(--deep);overflow:hidden}
+.dz:hover,.dz.drag{border-color:var(--v75g);background:rgba(124,58,237,.03);
+  box-shadow:inset 0 0 30px rgba(124,58,237,.04)}
+.dz.has{border-style:solid;border-color:var(--v75g);padding:0;cursor:default;min-height:auto}
+.dz img{width:100%;display:block;border-radius:2px;max-height:350px;object-fit:contain}
+.dz-ico{width:52px;height:52px;border:1px solid var(--line);border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:1.3rem;
+  color:var(--dim);background:var(--raised);transition:all .3s}
+.dz:hover .dz-ico{border-color:var(--v75g);color:var(--v75g);box-shadow:0 0 16px rgba(124,58,237,.3)}
+.dz-txt{font-size:.68rem;color:var(--dim);text-align:center;line-height:1.9}
+.dz-sub{font-size:.56rem;color:var(--dimmer)}
+#fi,#ficam{display:none}
+.mob-btns{display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;justify-content:center}
+.mob-btn{font-family:'Orbitron',monospace;font-size:.56rem;letter-spacing:.1em;
+  padding:9px 16px;border-radius:3px;cursor:pointer;transition:all .3s;border:1px solid}
+.mob-btn.gal{color:var(--v75g);border-color:var(--v75);background:rgba(124,58,237,.08)}
+.mob-btn.gal:hover{background:rgba(124,58,237,.16);box-shadow:0 0 12px rgba(124,58,237,.2)}
+.mob-btn.cam{color:var(--gold);border-color:var(--gold);background:rgba(245,166,35,.07)}
+.mob-btn.cam:hover{background:rgba(245,166,35,.14)}
+.clrbtn{position:absolute;top:8px;right:8px;background:rgba(5,12,24,.92);
+  border:1px solid var(--line);color:var(--dim);font-size:.56rem;
+  font-family:'DM Mono',monospace;padding:4px 8px;border-radius:2px;
+  cursor:pointer;transition:all .2s;letter-spacing:.1em;backdrop-filter:blur(4px)}
+.clrbtn:hover{border-color:var(--red);color:var(--red)}
+
+/* TIMEFRAME PILLS */
+.plabel{font-size:.5rem;letter-spacing:.16em;color:var(--dim);margin-bottom:7px;display:block;text-transform:uppercase}
+.pills{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px}
+.pill{font-family:'Orbitron',monospace;font-size:.48rem;letter-spacing:.08em;
+  padding:5px 10px;border-radius:2px;border:1px solid var(--border);
+  background:transparent;color:var(--dimmer);cursor:pointer;transition:all .2s}
+.pill:hover{border-color:var(--line);color:var(--dim)}
+.pill.active{border-color:var(--v75g);color:var(--v75g);background:rgba(124,58,237,.1)}
+/* Star = best for V75 scalp */
+.pill.star::after{content:'★';font-size:.38rem;color:var(--gold);margin-left:3px;vertical-align:top}
+
+/* STRATEGY PILLS */
+.stratpills{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px}
+.spill{font-family:'Orbitron',monospace;font-size:.46rem;letter-spacing:.07em;
+  padding:4px 9px;border-radius:2px;border:1px solid var(--border);
+  background:transparent;color:var(--dimmer);cursor:pointer;transition:all .2s}
+.spill:hover{border-color:var(--line);color:var(--dim)}
+.spill.active{border-color:var(--v75g);color:var(--v75g);background:rgba(124,58,237,.08)}
+
+.ctx{width:100%;background:var(--deep);border:1px solid var(--border);color:var(--text);
+  font-family:'DM Mono',monospace;font-size:.7rem;padding:9px 11px;border-radius:3px;
+  resize:vertical;min-height:58px;outline:none;transition:border-color .2s;line-height:1.6}
+.ctx:focus{border-color:var(--v75g)}
+.ctx::placeholder{color:var(--dimmer)}
+
+/* ANALYZE BTN */
+.abtn{width:100%;margin-top:8px;background:transparent;border:1px solid var(--v75g);
+  color:var(--v75g);font-family:'Orbitron',monospace;font-size:.66rem;letter-spacing:.22em;
+  padding:14px;border-radius:3px;cursor:pointer;transition:all .3s;position:relative;overflow:hidden}
+.abtn::before{content:'';position:absolute;inset:0;background:rgba(124,58,237,.07);opacity:0;transition:opacity .3s}
+.abtn:hover:not(:disabled)::before{opacity:1}
+.abtn:hover:not(:disabled){box-shadow:0 0 28px rgba(124,58,237,.28)}
+.abtn:disabled{opacity:.28;cursor:not-allowed;border-color:var(--line);color:var(--dim)}
+.abtn-inner{display:flex;align-items:center;justify-content:center;gap:9px;position:relative;z-index:1}
+.spin{width:13px;height:13px;border:1px solid rgba(124,58,237,.3);border-top-color:var(--v75g);
+  border-radius:50%;animation:rot .65s linear infinite;display:none;flex-shrink:0}
+.spin.on{display:block}
+@keyframes rot{to{transform:rotate(360deg)}}
+.errbox{display:none;background:rgba(255,69,96,.06);border:1px solid rgba(255,69,96,.22);
+  border-radius:3px;padding:10px 12px;font-size:.64rem;color:var(--red);margin-top:8px;line-height:1.6}
+.errbox.on{display:block}
+
+/* HISTORY */
+.hlist{display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto}
+.hlist::-webkit-scrollbar{width:3px}
+.hlist::-webkit-scrollbar-thumb{background:var(--v75);border-radius:99px}
+.hi{display:flex;align-items:center;gap:8px;padding:6px 9px;border:1px solid var(--border);
+  border-radius:2px;background:var(--deep);cursor:pointer;transition:all .2s;font-size:.6rem}
+.hi:hover{border-color:var(--line)}
+.hithumb{width:40px;height:26px;object-fit:cover;border-radius:1px;border:1px solid var(--border);flex-shrink:0}
+.hisig{font-family:'Orbitron',monospace;font-size:.58rem;font-weight:700;min-width:36px}
+.hisig.BUY{color:var(--green)}.hisig.SELL{color:var(--red)}.hisig.WAIT,.hisig.NEUTRAL{color:var(--gold)}
+.himeta{color:var(--dim);font-size:.56rem}
+.hiconf{margin-left:auto;color:var(--dimmer);font-size:.54rem}
+.hempty{color:var(--dimmer);font-size:.62rem;text-align:center;padding:18px;letter-spacing:.1em}
+
+/* ─── RIGHT PANEL ──────────────────────────────── */
+.placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:18px;padding:65px 30px;text-align:center;background:var(--surface);
+  border:1px solid var(--border);border-radius:4px;min-height:460px}
+.ph-ring{width:88px;height:88px;border-radius:50%;border:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;position:relative}
+.ph-ring::before{content:'';position:absolute;inset:-9px;border-radius:50%;
+  border:1px dashed rgba(124,58,237,.25);animation:spin2 22s linear infinite}
+.ph-ring::after{content:'';position:absolute;inset:-19px;border-radius:50%;
+  border:1px dashed rgba(124,58,237,.1);animation:spin2 40s linear infinite reverse}
+@keyframes spin2{to{transform:rotate(360deg)}}
+.ph-ico{font-size:2rem;opacity:.18}
+.ph-title{font-family:'Orbitron',monospace;font-size:.66rem;letter-spacing:.22em;color:var(--dim)}
+.ph-sub{font-size:.66rem;color:var(--dimmer);max-width:280px;line-height:1.95}
+.ph-tags{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:4px}
+.ph-tag{font-size:.5rem;letter-spacing:.08em;padding:3px 8px;border-radius:2px;
+  border:1px solid rgba(124,58,237,.25);color:rgba(155,89,245,.6);
+  font-family:'Orbitron',monospace}
+
+.loadstate{display:none;flex-direction:column;align-items:center;justify-content:center;
+  gap:18px;padding:65px 30px;text-align:center;background:var(--surface);
+  border:1px solid var(--border);border-radius:4px;min-height:460px}
+.loadstate.on{display:flex}
+.lbars{display:flex;gap:4px;align-items:flex-end;height:36px}
+.lb{width:4px;background:var(--v75g);border-radius:1px;
+  animation:wv 1.3s ease-in-out infinite;box-shadow:0 0 6px var(--v75g)}
+.lb:nth-child(2){animation-delay:.16s;background:var(--gold)}
+.lb:nth-child(3){animation-delay:.32s}
+.lb:nth-child(4){animation-delay:.48s;background:var(--gold)}
+.lb:nth-child(5){animation-delay:.64s}
+@keyframes wv{0%,100%{height:5px;opacity:.3}50%{height:34px;opacity:1}}
+.ltitle{font-family:'Orbitron',monospace;font-size:.7rem;letter-spacing:.22em;color:var(--v75g)}
+.lmsg{font-size:.63rem;color:var(--dim);letter-spacing:.08em;min-height:18px}
+
+/* ─── RESULTS ─────────────────────────────────── */
+.result{display:none;flex-direction:column;gap:14px}
+.result.on{display:flex}
+
+/* SIGNAL HERO */
+.sighero{background:var(--surface);border:1px solid var(--border);border-radius:4px;
+  padding:24px;position:relative;overflow:hidden}
+.sighero::after{content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse at 50% 0%,var(--sg,transparent),transparent 62%);pointer-events:none}
+.sigtop{display:flex;align-items:center;gap:16px;margin-bottom:18px;flex-wrap:wrap}
+.sigbig{font-family:'Orbitron',monospace;font-size:2.3rem;font-weight:900;letter-spacing:.1em;
+  padding:12px 26px;border-radius:3px;border:2px solid;text-shadow:0 0 22px currentColor;position:relative}
+.sigbig::before{content:'';position:absolute;inset:0;background:currentColor;opacity:.07;border-radius:inherit}
+.sigbig.BUY{color:var(--green);border-color:var(--green)}
+.sigbig.SELL{color:var(--red);border-color:var(--red)}
+.sigbig.WAIT,.sigbig.NEUTRAL{color:var(--gold);border-color:var(--gold)}
+.sigmeta{flex:1;display:flex;flex-direction:column;gap:9px;min-width:180px}
+.confhdr{display:flex;justify-content:space-between;margin-bottom:4px}
+.conflbl{font-size:.52rem;letter-spacing:.14em;color:var(--dim)}
+.confnum{font-family:'Orbitron',monospace;font-size:.64rem}
+.conftrack{height:4px;background:rgba(255,255,255,.04);border-radius:99px;overflow:hidden}
+.confbar{height:100%;border-radius:99px;transition:width 1.3s cubic-bezier(.4,0,.2,1)}
+.trendline{display:flex;align-items:center;gap:7px;font-size:.62rem}
+.trddot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.trddot.BULLISH{background:var(--green);box-shadow:0 0 5px var(--green)}
+.trddot.BEARISH{background:var(--red);box-shadow:0 0 5px var(--red)}
+.trddot.SIDEWAYS{background:var(--gold)}
+
+/* V75 VOLATILITY CONTEXT ROW */
+.v75row{display:flex;align-items:center;gap:8px;padding:6px 10px;
+  background:rgba(124,58,237,.06);border:1px solid rgba(124,58,237,.14);border-radius:2px;
+  font-size:.55rem;color:var(--dim);flex-wrap:wrap;gap:10px}
+.v75row-label{font-family:'Orbitron',monospace;font-size:.46rem;letter-spacing:.14em;
+  color:var(--v75g);background:rgba(124,58,237,.15);padding:2px 7px;border-radius:2px}
+.v75row-item{display:flex;align-items:center;gap:4px}
+.v75row-item .val{color:var(--text)}
+
+.levels{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.lvl{background:var(--raised);border:1px solid var(--border);border-radius:2px;padding:11px;
+  text-align:center;position:relative;overflow:hidden}
+.lvl::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.lvl.e::before{background:var(--v75g)}.lvl.s::before{background:var(--red)}.lvl.t::before{background:var(--green)}
+.lvllbl{font-size:.48rem;letter-spacing:.13em;color:var(--dim);margin-bottom:5px}
+.lvlval{font-family:'Orbitron',monospace;font-size:.72rem;line-height:1.2}
+.lvl.e .lvlval{color:var(--v75g)}.lvl.s .lvlval{color:var(--red)}.lvl.t .lvlval{color:var(--green)}
+.lvlrr{font-size:.5rem;color:var(--dimmer);margin-top:2px}
+
+/* SECTION PANELS */
+.spanel{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:18px}
+.stitle{font-family:'Orbitron',monospace;font-size:.5rem;letter-spacing:.22em;color:var(--dim);
+  margin-bottom:12px;display:flex;align-items:center;gap:7px}
+.stitle::after{content:'';flex:1;height:1px;background:var(--border)}
+.stitle .v75chip{font-size:.44rem;background:rgba(124,58,237,.12);
+  border:1px solid rgba(124,58,237,.25);color:var(--v75g);padding:1px 6px;border-radius:2px}
+
+.tags{display:flex;flex-wrap:wrap;gap:5px}
+.tag{font-size:.58rem;letter-spacing:.06em;padding:4px 9px;border-radius:2px;border:1px solid;font-family:'DM Mono',monospace}
+.tag.bull{color:var(--green);border-color:rgba(0,245,160,.28);background:rgba(0,245,160,.05)}
+.tag.bear{color:var(--red);border-color:rgba(255,69,96,.28);background:rgba(255,69,96,.05)}
+.tag.neut{color:var(--gold);border-color:rgba(245,166,35,.28);background:rgba(245,166,35,.05)}
+.tag.pat{color:var(--v75g);border-color:rgba(124,58,237,.3);background:rgba(124,58,237,.05)}
+.tag.v75specific{color:rgba(155,89,245,.9);border-color:rgba(124,58,237,.35);
+  background:rgba(124,58,237,.07);font-family:'Orbitron',monospace;font-size:.46rem;letter-spacing:.08em}
+
+.cklist{display:flex;flex-direction:column}
+.ci{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:.7rem}
+.ci:last-child{border-bottom:none}
+.cidot{width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:3px}
+.cidot.ok{background:var(--green);box-shadow:0 0 5px var(--green)}
+.cidot.warn{background:var(--gold)}
+.cidot.bad{background:var(--red)}
+.ciname{flex:1}
+.cival{font-size:.6rem;letter-spacing:.04em}
+.cival.ok{color:var(--green)}.cival.warn{color:var(--gold)}.cival.bad{color:var(--red)}
+
+.abody{font-size:.74rem;line-height:2;color:var(--text)}
+.abody p{margin-bottom:10px}.abody p:last-child{margin-bottom:0}
+
+.riskpanel{background:rgba(255,69,96,.04);border:1px solid rgba(255,69,96,.13);border-radius:4px;padding:16px 18px}
+.riskbody{font-size:.7rem;line-height:1.85;color:rgba(255,110,130,.85)}
+
+/* V75 SPECIFIC WARNINGS */
+.v75warns{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+.v75warn{display:flex;align-items:flex-start;gap:8px;font-size:.6rem;line-height:1.7;
+  color:rgba(155,89,245,.75);padding:7px 10px;
+  background:rgba(124,58,237,.05);border:1px solid rgba(124,58,237,.13);border-radius:2px}
+.v75warn .wico{font-size:.7rem;flex-shrink:0}
+
+.disc{background:rgba(245,166,35,.03);border:1px solid rgba(245,166,35,.08);border-radius:3px;
+  padding:9px 14px;font-size:.54rem;color:var(--dimmer);letter-spacing:.07em;line-height:1.7;text-align:center}
+
+/* TOAST */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+  font-size:.62rem;letter-spacing:.1em;padding:9px 20px;border-radius:2px;
+  border:1px solid var(--border);background:var(--raised);
+  opacity:0;transition:opacity .3s;pointer-events:none;z-index:999;
+  white-space:nowrap;font-family:'DM Mono',monospace}
+.toast.on{opacity:1}
+.toast.ok{border-color:var(--green);color:var(--green)}
+.toast.err{border-color:var(--red);color:var(--red)}
+.toast.info{border-color:var(--v75g);color:var(--v75g)}
+
+footer{text-align:center;font-size:.5rem;letter-spacing:.16em;color:var(--dimmer);
+  margin-top:50px;padding-top:18px;border-top:1px solid var(--border)}
+
+::-webkit-scrollbar{width:3px;height:3px}
+::-webkit-scrollbar-thumb{background:var(--v75);border-radius:99px}
+</style>
+</head>
+<body>
+<div class="scanlines"></div>
+<div class="corner tl"></div><div class="corner tr"></div>
+<div class="corner bl"></div><div class="corner br"></div>
+
+<!-- ═══ API KEY GATE ════════════════════════════════════════════ -->
+<div class="gate" id="gate">
+  <div class="gate-box">
+    <div class="gate-logo">
+      <span class="f">FOCUS</span><span class="v"> V75</span>
+    </div>
+    <div class="gate-sub">Volatility 75 (1s) · AI Analysis Terminal</div>
+    <div class="locked-badge"><span class="dot"></span>INSTRUMENT LOCKED · V75 (1s) ONLY · DERIV</div>
+
+    <label class="gate-label">GROQ API KEY</label>
+    <input class="gate-input" type="password" id="apiInput" placeholder="gsk_..." autocomplete="off"/>
+    <div class="gate-hint">
+      100% FREE — Get your key at <a href="https://console.groq.com/keys" target="_blank">console.groq.com</a><br>
+      No credit card needed. Key stored in your browser only — never sent anywhere.
+    </div>
+    <button class="gate-btn" onclick="saveKey()">ENTER V75 TERMINAL ▶</button>
+    <div class="gate-err" id="gateErr">Please enter a valid API key</div>
+
+    <div class="gate-specs">
+      <div class="gate-specs-title">V75 (1s) INSTRUMENT PROFILE</div>
+      <div class="gate-specs-grid">
+        <div><strong>Volatility</strong> — 75% constant</div>
+        <div><strong>Tick speed</strong> — 1 second</div>
+        <div><strong>Market hours</strong> — 24 / 7 / 365</div>
+        <div><strong>Broker</strong> — Deriv.com</div>
+        <div><strong>News impact</strong> — None (synthetic)</div>
+        <div><strong>Weekend gaps</strong> — None</div>
+        <div><strong>Best scalp TF</strong> — M1, M5, M15</div>
+        <div><strong>Stops type</strong> — ATR-based</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MAIN APP ════════════════════════════════════════════════ -->
+<div class="app" id="appWrap" style="display:none">
+
+  <header class="header">
+    <div class="logo-wrap">
+      <div class="logo"><span class="f">FOCUS</span><span class="v75"> V75(1s)</span></div>
+      <div class="logo-sub">Volatility 75 Index · AI Chart Analysis Terminal</div>
+    </div>
+    <div class="hbadges">
+      <div class="hbadge live">LIVE</div>
+      <div class="hbadge v75locked">⊛ V75 · 1s · DERIV · LOCKED</div>
+      <div class="hbadge ai">AI POWERED</div>
+      <div class="hbadge keybtn" onclick="showGate()">⚙ KEY</div>
+    </div>
+  </header>
+
+  <div class="main">
+
+    <!-- ═══ LEFT COLUMN ═══════════════════════════════ -->
+    <div>
+
+      <!-- Locked instrument strip -->
+      <div class="instrument-strip">
+        <div class="inst-name">
+          Volatility 75 (1s) Index
+          <span class="lock">🔒 LOCKED</span>
+        </div>
+        <div class="inst-props">
+          <div class="inst-props"><span>75%</span> VOL &nbsp;·&nbsp; <span>1s</span> TICK &nbsp;·&nbsp; <span>24/7</span></div>
+        </div>
+        <div class="inst-pulse" id="mktState">SYNTHETIC</div>
+      </div>
+
+      <!-- Chart upload -->
+      <div class="card">
+        <div class="ctitle">V75 CHART INPUT</div>
+        <div class="dz" id="dz">
+          <div class="dz-ico">◈</div>
+          <div class="dz-txt">DROP V75 CHART HERE<br><span style="font-size:.58rem;color:var(--dimmer)">Deriv MT5 screenshot · any timeframe</span></div>
+          <div class="dz-sub"></div>
+          <div class="mob-btns">
+            <button class="mob-btn gal" onclick="document.getElementById('fi').click()">🖼 PHOTO LIBRARY</button>
+            <button class="mob-btn cam" onclick="document.getElementById('ficam').click()">📷 CAMERA</button>
+          </div>
+        </div>
+        <input type="file" id="fi" accept="image/*"/>
+        <input type="file" id="ficam" accept="image/*" capture="environment"/>
+        <div class="errbox" id="errbox"></div>
+      </div>
+
+      <!-- Parameters -->
+      <div class="card">
+        <div class="ctitle">ANALYSIS PARAMETERS</div>
+
+        <span class="plabel">TIMEFRAME <span style="color:var(--gold);font-size:.44rem">★ = best for V75 scalp</span></span>
+        <div class="pills">
+          <button class="pill star" onclick="setTf(this,'M1')">M1</button>
+          <button class="pill star" onclick="setTf(this,'M5')">M5</button>
+          <button class="pill star active" onclick="setTf(this,'M15')">M15</button>
+          <button class="pill" onclick="setTf(this,'M30')">M30</button>
+          <button class="pill" onclick="setTf(this,'H1')">H1</button>
+          <button class="pill" onclick="setTf(this,'H4')">H4</button>
+          <button class="pill" onclick="setTf(this,'D1')">D1</button>
+        </div>
+
+        <span class="plabel">STRATEGY FOCUS</span>
+        <div class="stratpills" id="stratpills">
+          <button class="spill active" onclick="setStrat(this,'scalp')">SCALP</button>
+          <button class="spill" onclick="setStrat(this,'swing')">SWING</button>
+          <button class="spill" onclick="setStrat(this,'ama')">AMA SIGNAL</button>
+          <button class="spill" onclick="setStrat(this,'breakout')">BREAKOUT</button>
+          <button class="spill" onclick="setStrat(this,'reversal')">REVERSAL</button>
+          <button class="spill" onclick="setStrat(this,'trend')">TREND</button>
+        </div>
+
+        <span class="plabel">EXTRA CONTEXT (optional)</span>
+        <textarea class="ctx" id="ctx" placeholder="Key levels, recent spike, ranging/trending, custom note..."></textarea>
+
+        <button class="abtn" id="abtn" disabled onclick="analyze()">
+          <div class="abtn-inner">
+            <div class="spin" id="spin"></div>
+            <span id="btntxt">ANALYZE V75 CHART</span>
+          </div>
+        </button>
+      </div>
+
+      <!-- Scan history -->
+      <div class="card">
+        <div class="ctitle">SCAN HISTORY</div>
+        <div class="hlist" id="hlist"><div class="hempty">NO SCANS YET</div></div>
+      </div>
+    </div>
+
+    <!-- ═══ RIGHT COLUMN ══════════════════════════════ -->
+    <div id="rightcol">
+
+      <!-- Placeholder -->
+      <div class="placeholder" id="ph">
+        <div class="ph-ring"><div class="ph-ico">◈</div></div>
+        <div class="ph-title">AWAITING V75 CHART</div>
+        <div class="ph-sub">Upload a Volatility 75 (1s) Index screenshot from your Deriv MT5. AI engine analyzes with full V75-specific knowledge.</div>
+        <div class="ph-tags">
+          <span class="ph-tag">PRICE STRUCTURE</span>
+          <span class="ph-tag">S/R LEVELS</span>
+          <span class="ph-tag">AMA POSITION</span>
+          <span class="ph-tag">RSI MOMENTUM</span>
+          <span class="ph-tag">SPIKE PATTERNS</span>
+          <span class="ph-tag">TREND PHASE</span>
+          <span class="ph-tag">ATR STOPS</span>
+        </div>
+      </div>
+
+      <!-- Loading -->
+      <div class="loadstate" id="ls">
+        <div class="lbars"><div class="lb"></div><div class="lb"></div><div class="lb"></div><div class="lb"></div><div class="lb"></div></div>
+        <div class="ltitle">SCANNING V75 CHART</div>
+        <div class="lmsg" id="lmsg">Reading V75 price structure...</div>
+      </div>
+
+      <!-- Results -->
+      <div class="result" id="res">
+
+        <!-- Signal hero -->
+        <div class="sighero" id="sighero">
+          <div class="sigtop">
+            <div class="sigbig" id="sigbig">—</div>
+            <div class="sigmeta">
+              <div>
+                <div class="confhdr">
+                  <span class="conflbl">CONFIDENCE</span>
+                  <span class="confnum" id="confnum">—</span>
+                </div>
+                <div class="conftrack"><div class="confbar" id="confbar" style="width:0%"></div></div>
+              </div>
+              <div class="trendline">
+                <div class="trddot" id="trddot"></div>
+                <span id="trdtxt" style="color:var(--dim);letter-spacing:.1em;font-size:.6rem"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- V75 context row -->
+          <div class="v75row" id="v75row">
+            <span class="v75row-label">V75</span>
+            <div class="v75row-item">Phase: <span class="val" id="v75phase">—</span></div>
+            <div class="v75row-item">Volatility: <span class="val" id="v75vol">—</span></div>
+            <div class="v75row-item">Spikes: <span class="val" id="v75spike">—</span></div>
+          </div>
+
+          <div class="levels" style="margin-top:14px">
+            <div class="lvl e"><div class="lvllbl">ENTRY ZONE</div><div class="lvlval" id="lve">—</div></div>
+            <div class="lvl s"><div class="lvllbl">STOP LOSS</div><div class="lvlval" id="lvsl">—</div></div>
+            <div class="lvl t"><div class="lvllbl">TAKE PROFIT</div><div class="lvlval" id="lvtp">—</div><div class="lvlrr" id="lvrr"></div></div>
+          </div>
+        </div>
+
+        <!-- Signals & patterns -->
+        <div class="spanel">
+          <div class="stitle">DETECTED SIGNALS &amp; PATTERNS <span class="v75chip">V75</span></div>
+          <div class="tags" id="tags"></div>
+        </div>
+
+        <!-- Confluence checklist -->
+        <div class="spanel">
+          <div class="stitle">V75 CONFLUENCE CHECKLIST</div>
+          <div class="cklist" id="cklist"></div>
+        </div>
+
+        <!-- Analysis -->
+        <div class="spanel">
+          <div class="stitle">MARKET ANALYSIS</div>
+          <div class="abody" id="abody"></div>
+        </div>
+
+        <!-- Risk -->
+        <div class="riskpanel">
+          <div class="stitle" style="color:rgba(255,69,96,.5)">RISK ASSESSMENT</div>
+          <div class="riskbody" id="riskbody"></div>
+          <div class="v75warns">
+            <div class="v75warn"><span class="wico">⚡</span>V75 has CONSTANT 75% volatility — always use ATR-based stops, never fixed-pip. Stops set too tight will be hit by normal noise.</div>
+            <div class="v75warn"><span class="wico">⟳</span>Synthetic spikes occur randomly on V75 — confirm any apparent breakout with a full close beyond the level.</div>
+            <div class="v75warn"><span class="wico">◎</span>V75 has no news risk, no weekend gaps, no session bias — trade purely on price action and structure.</div>
+          </div>
+        </div>
+
+        <div class="disc">FOR EDUCATIONAL & RESEARCH PURPOSES ONLY · NOT FINANCIAL ADVICE · V75 IS A HIGH-RISK SYNTHETIC INSTRUMENT · ALWAYS MANAGE RISK</div>
+      </div>
+
+    </div>
+  </div>
+
+  <footer>FOCUS V75 AI TERMINAL · VOLATILITY 75 (1s) INDEX · DERIV · POWERED BY GROQ AI · RUNS IN YOUR BROWSER</footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── STATE ─────────────────────────────────────────────────────────
+let API_KEY = localStorage.getItem('focus_v75_key') || '';
+let img64 = null, imgMime = null;
+const SYMBOL = 'Volatility 75 (1s) Index'; // LOCKED — never changes
+let tf = 'M15';
+let strat = 'scalp';
+let history = [];
+
+// ── GATE ──────────────────────────────────────────────────────────
+function saveKey() {
+  const k = document.getElementById('apiInput').value.trim();
+  if (k.length < 10) { document.getElementById('gateErr').style.display = 'block'; return; }
+  API_KEY = k;
+  localStorage.setItem('focus_v75_key', k);
+  document.getElementById('gate').style.display = 'none';
+  document.getElementById('appWrap').style.display = 'block';
+  toast('Welcome to FOCUS V75 Terminal', 'ok');
+}
+function showGate() {
+  document.getElementById('apiInput').value = API_KEY;
+  document.getElementById('gate').style.display = 'flex';
+  document.getElementById('appWrap').style.display = 'none';
+}
+document.getElementById('apiInput').addEventListener('keydown', e => { if (e.key === 'Enter') saveKey(); });
+if (API_KEY) {
+  document.getElementById('gate').style.display = 'none';
+  document.getElementById('appWrap').style.display = 'block';
+}
+
+// ── DROP ZONE ─────────────────────────────────────────────────────
+const dz = document.getElementById('dz');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) loadImg(f);
+});
+document.getElementById('fi').addEventListener('change', e => { if (e.target.files[0]) loadImg(e.target.files[0]); });
+document.getElementById('ficam').addEventListener('change', e => { if (e.target.files[0]) loadImg(e.target.files[0]); });
+
+function loadImg(file) {
+  const r = new FileReader();
+  r.onload = ev => {
+    const src = ev.target.result;
+    img64 = src.split(',')[1];
+    imgMime = src.split(';')[0].split(':')[1];
+    dz.classList.add('has');
+    dz.innerHTML = `<img src="${src}" alt="V75 chart"/><button class="clrbtn" onclick="clearImg(event)">✕ CLEAR</button>`;
+    document.getElementById('abtn').disabled = false;
+    document.getElementById('errbox').classList.remove('on');
+    toast('V75 chart loaded — ready to scan', 'ok');
+  };
+  r.readAsDataURL(file);
+}
+function clearImg(e) {
+  e.stopPropagation();
+  img64 = null; imgMime = null;
+  dz.classList.remove('has');
+  dz.innerHTML = `<div class="dz-ico">◈</div><div class="dz-txt">DROP V75 CHART HERE<br><span style="font-size:.58rem;color:var(--dimmer)">Deriv MT5 screenshot · any timeframe</span></div><div class="dz-sub"></div><div class="mob-btns"><button class="mob-btn gal" onclick="document.getElementById('fi').click()">🖼 PHOTO LIBRARY</button><button class="mob-btn cam" onclick="document.getElementById('ficam').click()">📷 CAMERA</button></div>`;
+  document.getElementById('abtn').disabled = true;
+  show('ph'); hide('res'); hide('ls');
+}
+
+// ── PILLS ─────────────────────────────────────────────────────────
+function setTf(btn, t) {
+  document.querySelectorAll('.pill.active').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active'); tf = t;
+}
+function setStrat(btn, s) {
+  document.querySelectorAll('.spill.active').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active'); strat = s;
+}
+
+// ── V75 PROMPT BUILDER ────────────────────────────────────────────
+const STRAT_NOTES = {
+  scalp:    'Focus on M1–M15 scalping: immediate momentum, micro swing highs/lows, tight ATR-based entries. V75 moves fast — identify the current impulse direction clearly.',
+  swing:    'Focus on multi-session swing setups. Identify the dominant higher-TF structure, key levels, and optimal pullback entry. Minimum R:R of 1:2.',
+  ama:      'CRITICAL FOCUS: Analyze the Adaptive Moving Average (AMA/KAMA) precisely. Is the red AMA line ABOVE or BELOW the current candle body? AMA above body = SELL bias. AMA below body = BUY bias. Note AMA slope direction. If a slow/cyan MA is visible, note whether price is above or below it as trend filter. Report this with precision.',
+  breakout: 'Identify consolidation zones and range boundaries. Note breakout direction, volume-equivalent (range expansion), and whether the move has body closes beyond structure. V75 has frequent false breakouts — confirmation is key.',
+  reversal: 'Look for exhaustion signals: long wicks, RSI divergence, failure swings, double tops/bottoms at key levels. V75 reversal spikes can be violent and fast.',
+  trend:    'Assess the dominant trend structure. Are EMAs stacked? Is price making higher highs/lows or lower highs/lows? Identify pullback entry aligned with the trend. Note trend maturity.'
+};
+
+function buildPrompt(ctx) {
+  const stratNote = STRAT_NOTES[strat] || STRAT_NOTES.scalp;
+  return `You are an expert technical analyst with deep, specialized knowledge of the Volatility 75 (1s) Index on Deriv — a 24/7 synthetic instrument with CONSTANT 75% volatility and 1-second tick generation. This is NOT a real-world market. It has zero news events, zero weekend gaps, zero fundamental drivers, zero session bias. Price action is purely algorithmic.
+
+INSTRUMENT: ${SYMBOL} (LOCKED — do not suggest other instruments)
+TIMEFRAME: ${tf}
+ANALYSIS STRATEGY: ${strat.toUpperCase()} — ${stratNote}
+
+MANDATORY V75-SPECIFIC ANALYSIS RULES:
+1. V75 has CONSTANT 75% volatility — ATR-based stops are essential. NEVER suggest fixed-pip stops.
+2. Support and resistance levels EXIST and are respected, but synthetic price spikes can temporarily breach them — look for confirmation candles after key level touches.
+3. RSI works very well on V75 — identify overbought (>70) and oversold (<30) levels clearly.
+4. If you see a red curved moving average (this is the AMA/KAMA — Kaufman Adaptive Moving Average): AMA above the candle body = SELL, AMA below the candle body = BUY. Note the slope.
+5. If you see a slower/cyan moving average: it acts as trend backdrop — price above it is bullish backdrop, below is bearish.
+6. V75 trends strongly then reverses — identify the current trend PHASE: early trend, mid trend, extended/exhaustion, reversal, ranging.
+7. Synthetic spikes (sudden 2–4 candle vertical moves) are common. If a recent spike is visible, note whether structure has recovered.
+8. M1–M15 scalping is most common for V75. On higher TFs (H1+), setups are rarer but more reliable.
+9. No news, no gaps — any "quiet" or "ranging" period is purely technical consolidation, not pre-event build-up.
+10. Price is expressed in index points (e.g. 152,340.50) — reference visible price levels if readable from the chart.
+${ctx ? `\nTrader's notes: ${ctx}` : ''}
+
+Analyze this V75 (1s) chart image precisely:
+- Overall trend structure and current phase
+- Key support / resistance levels (state price if visible)
+- All visible candlestick patterns
+- All visible indicators — especially AMA/KAMA, slow MA, RSI, MACD, Bollinger Bands, Alligator, Stochastic
+- Chart patterns: flags, wedges, triangles, double tops/bottoms, head & shoulders
+- Market structure breaks (BOS / CHoCH)
+- Momentum and divergence
+- Any spike patterns or anomalies typical of V75
+
+Return ONLY a raw JSON object with no markdown, no backticks, no explanation outside the JSON:
+{
+  "signal": "BUY" or "SELL" or "WAIT",
+  "confidence": 0-100,
+  "trend": "BULLISH" or "BEARISH" or "SIDEWAYS",
+  "entry": "price zone or description",
+  "stop_loss": "price or ATR-based description",
+  "take_profit": "price or description",
+  "rr_ratio": "1:X",
+  "v75_phase": "TRENDING" or "RANGING" or "REVERSAL" or "SPIKE_RECOVERY" or "EXHAUSTION",
+  "volatility_state": "LOW" or "NORMAL" or "HIGH" or "SPIKE",
+  "spike_risk": "LOW" or "MEDIUM" or "HIGH",
+  "indicators": [{"name":"indicator name","signal":"BULL or BEAR or NEUTRAL","detail":"specific reading on this V75 chart"}],
+  "patterns": ["pattern1","pattern2"],
+  "checklist": [
+    {"item":"V75 trend direction confirmed","status":"ok or warn or bad","detail":""},
+    {"item":"Key S/R level identified","status":"ok or warn or bad","detail":""},
+    {"item":"Entry candle confirmed","status":"ok or warn or bad","detail":""},
+    {"item":"RSI aligned with signal","status":"ok or warn or bad","detail":""},
+    {"item":"AMA position confirms signal","status":"ok or warn or bad","detail":""},
+    {"item":"ATR-based stop placed beyond structure","status":"ok or warn or bad","detail":""},
+    {"item":"R:R minimum 1:1.5 achievable","status":"ok or warn or bad","detail":""},
+    {"item":"No recent spike distortion","status":"ok or warn or bad","detail":""}
+  ],
+  "analysis": "4 paragraphs. P1: V75 price structure — trend phase, recent behavior, any synthetic characteristics. P2: Key levels, candlestick patterns, visible chart patterns. P3: All indicator readings — be specific about AMA position relative to candle, RSI value, other visible indicators. P4: Trade setup rationale — precise entry logic for V75, what confirms it, what invalidates it.",
+  "risk_notes": "V75-specific risks: ATR stop sizing, spike risk on this setup, trend phase sustainability, recommended lot sizing approach for 75% volatility instrument"
+}`;
+}
+
+// ── ANALYZE ───────────────────────────────────────────────────────
+async function analyze() {
+  if (!img64 || !API_KEY) return;
+  const btn = document.getElementById('abtn');
+  const spin = document.getElementById('spin');
+  const btntxt = document.getElementById('btntxt');
+  const errbox = document.getElementById('errbox');
+
+  btn.disabled = true;
+  spin.classList.add('on');
+  btntxt.textContent = 'SCANNING V75...';
+  errbox.classList.remove('on');
+  hide('ph'); hide('res'); show('ls');
+
+  const msgs = [
+    'Reading V75 price structure...',
+    'Mapping support & resistance...',
+    'Analyzing V75 trend phase...',
+    'Detecting synthetic spike patterns...',
+    'Reading AMA / MA positions...',
+    'Checking RSI momentum...',
+    'Identifying candlestick patterns...',
+    'Assessing volatility state...',
+    'Calculating ATR-based levels...',
+    'Generating V75 signal...'
+  ];
+  let mi = 0;
+  const lt = setInterval(() => { document.getElementById('lmsg').textContent = msgs[mi++ % msgs.length]; }, 1400);
+
+  try {
+    const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+        max_tokens: 2500,
+        temperature: 0.15,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: `data:${imgMime};base64,${img64}` } },
+            { type: 'text', text: buildPrompt(document.getElementById('ctx').value.trim()) }
+          ]
+        }]
+      })
+    });
+
+    clearInterval(lt);
+    const data = await resp.json();
+
+    if (data.error) {
+      if (data.error.code === 'invalid_api_key' || data.error.type === 'invalid_request_error')
+        throw new Error('Invalid API key — click ⚙ KEY to update');
+      throw new Error(data.error.message || 'API error');
+    }
+
+    const raw = data.choices?.[0]?.message?.content || '';
+    let result;
+    try {
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error('No JSON in response');
+      result = JSON.parse(m[0]);
+    } catch { throw new Error('Could not parse AI response — please retry'); }
+
+    render(result);
+    addHistory(result);
+
+  } catch (err) {
+    clearInterval(lt);
+    errbox.textContent = '✗ ' + err.message;
+    errbox.classList.add('on');
+    hide('ls'); show('ph');
+    toast(err.message, 'err');
+  } finally {
+    hide('ls');
+    btn.disabled = false;
+    spin.classList.remove('on');
+    btntxt.textContent = 'ANALYZE V75 CHART';
+  }
+}
+
+// ── RENDER ────────────────────────────────────────────────────────
+function render(r) {
+  const sig   = (r.signal || 'WAIT').toUpperCase();
+  const conf  = Math.min(100, Math.max(0, r.confidence || 50));
+  const trend = (r.trend  || 'SIDEWAYS').toUpperCase();
+  const phase = (r.v75_phase || '—').replace(/_/g, ' ');
+  const volSt = (r.volatility_state || 'NORMAL').toUpperCase();
+  const spike = (r.spike_risk || 'MEDIUM').toUpperCase();
+  const cc    = conf >= 70 ? 'var(--green)' : conf >= 50 ? 'var(--gold)' : 'var(--red)';
+
+  // Signal badge
+  const sb = document.getElementById('sigbig');
+  sb.className = 'sigbig ' + sig;
+  sb.textContent = sig === 'BUY' ? '▲ BUY' : sig === 'SELL' ? '▼ SELL' : '— WAIT';
+
+  const glows = { BUY:'rgba(0,245,160,.07)', SELL:'rgba(255,69,96,.07)', WAIT:'rgba(245,166,35,.07)', NEUTRAL:'rgba(245,166,35,.07)' };
+  document.getElementById('sighero').style.setProperty('--sg', glows[sig] || 'transparent');
+
+  // Confidence bar
+  document.getElementById('confbar').style.width = conf + '%';
+  document.getElementById('confbar').style.background = cc;
+  document.getElementById('confnum').textContent = conf + '%';
+  document.getElementById('confnum').style.color = cc;
+
+  // Trend dot
+  document.getElementById('trddot').className = 'trddot ' + trend;
+  document.getElementById('trdtxt').textContent = trend + ' TREND';
+
+  // V75 context row
+  document.getElementById('v75phase').textContent = phase;
+  document.getElementById('v75phase').style.color = phase.includes('TREND') ? 'var(--green)' : phase.includes('REVERS') || phase.includes('EXHAUST') ? 'var(--red)' : 'var(--gold)';
+  document.getElementById('v75vol').textContent = volSt;
+  document.getElementById('v75vol').style.color = volSt === 'SPIKE' ? 'var(--red)' : volSt === 'HIGH' ? 'var(--gold)' : 'var(--text)';
+  document.getElementById('v75spike').textContent = spike + ' RISK';
+  document.getElementById('v75spike').style.color = spike === 'HIGH' ? 'var(--red)' : spike === 'MEDIUM' ? 'var(--gold)' : 'var(--green)';
+
+  // Levels
+  document.getElementById('lve').textContent  = r.entry       || '—';
+  document.getElementById('lvsl').textContent = r.stop_loss   || '—';
+  document.getElementById('lvtp').textContent = r.take_profit || '—';
+  document.getElementById('lvrr').textContent = r.rr_ratio ? 'R:R ' + r.rr_ratio : '';
+
+  // Tags — indicators + patterns + V75 phase
+  const tags = document.getElementById('tags');
+  tags.innerHTML = '';
+  (r.indicators || []).forEach(i => {
+    const cls = i.signal === 'BULL' ? 'bull' : i.signal === 'BEAR' ? 'bear' : 'neut';
+    tags.innerHTML += `<span class="tag ${cls}" title="${i.detail || ''}">${i.name} ${i.signal==='BULL'?'▲':i.signal==='BEAR'?'▼':'→'}</span>`;
+  });
+  (r.patterns || []).forEach(p => { tags.innerHTML += `<span class="tag pat">◆ ${p}</span>`; });
+  tags.innerHTML += `<span class="tag v75specific">${phase}</span>`;
+  if (!tags.querySelector('.tag:not(.v75specific)')) tags.innerHTML += '<span class="tag neut">No indicators visible</span>';
+
+  // Checklist
+  const cl = document.getElementById('cklist');
+  cl.innerHTML = '';
+  (r.checklist || []).forEach(c => {
+    cl.innerHTML += `<div class="ci">
+      <div class="cidot ${c.status}"></div>
+      <span class="ciname">${c.item}</span>
+      <span class="cival ${c.status}">${c.status==='ok'?'✓':c.status==='warn'?'~':'✗'} ${c.detail||''}</span>
+    </div>`;
+  });
+
+  // Analysis
+  const paras = (r.analysis || '').split(/\n+/).filter(p => p.trim());
+  document.getElementById('abody').innerHTML = paras.map(p => `<p>${p}</p>`).join('');
+
+  // Risk
+  document.getElementById('riskbody').innerHTML = (r.risk_notes || 'Use ATR-based stops. V75 has 75% constant volatility.').replace(/\n/g, '<br>');
+
+  hide('ph'); hide('ls'); show('res');
+
+  const label = sig === 'BUY' ? '▲ BUY' : sig === 'SELL' ? '▼ SELL' : '— WAIT';
+  toast(`${label}  ${conf}%  [${phase}]`, sig==='BUY'?'ok':sig==='SELL'?'err':'info');
+  setTimeout(() => document.getElementById('res').scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
+}
+
+// ── HISTORY ───────────────────────────────────────────────────────
+function addHistory(r) {
+  const thumb = document.querySelector('.dz img')?.src || '';
+  history.unshift({
+    sig:   (r.signal || 'WAIT').toUpperCase(),
+    conf:  r.confidence || 0,
+    phase: (r.v75_phase || '').replace(/_/g,' '),
+    tf,
+    time:  new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+    thumb
+  });
+  if (history.length > 12) history.pop();
+  renderHistory();
+}
+function renderHistory() {
+  const list = document.getElementById('hlist');
+  if (!history.length) { list.innerHTML = '<div class="hempty">NO SCANS YET</div>'; return; }
+  list.innerHTML = history.map(h => `
+    <div class="hi">
+      ${h.thumb ? `<img class="hithumb" src="${h.thumb}" alt=""/>` : ''}
+      <span class="hisig ${h.sig}">${h.sig==='BUY'?'▲':h.sig==='SELL'?'▼':'—'} ${h.sig}</span>
+      <span class="himeta">V75 ${h.tf}</span>
+      <span class="himeta" style="color:rgba(155,89,245,.65);font-size:.5rem">${h.phase}</span>
+      <span class="hiconf">${h.conf}%</span>
+      <span style="color:var(--dimmer);font-size:.5rem;margin-left:auto">${h.time}</span>
+    </div>`).join('');
+}
+
+// ── UTILS ─────────────────────────────────────────────────────────
+function show(id) { const el = document.getElementById(id); if(el) { el.classList.add('on'); el.style.display = ''; } }
+function hide(id) { const el = document.getElementById(id); if(el) { el.classList.remove('on'); } }
+
+let toastTimer = null;
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast on ' + type;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = 'toast', 5000);
+}
+
+// ── AMBIENT MARKET STATE TICKER ───────────────────────────────────
+(function () {
+  const states = ['SYNTHETIC · 24/7', 'V75 ACTIVE', '75% VOLATILITY', 'TICK: 1s', 'DERIV · LIVE'];
+  let i = 0;
+  const el = document.getElementById('mktState');
+  setInterval(() => { el.textContent = states[i++ % states.length]; }, 3800);
+})();
+</script>
+</body>
+</html>
